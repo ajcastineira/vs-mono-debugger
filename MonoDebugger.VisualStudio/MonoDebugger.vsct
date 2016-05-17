@@ -1,0 +1,48 @@
+﻿<?xml version="1.0" encoding="utf-8" ?>
+<CommandTable language="en-us" xmlns="http://schemas.microsoft.com/VisualStudio/2005-10-18/CommandTable">
+    <!--  This is the file that defines the actual layout and type of the commands.
+        It is divided in different sections (e.g. command definition, command
+        placement, ...), with each defining a specific set of properties.
+        See the comment before each section for more details about how to
+        use it. -->
+
+    <!--  The VSCT compiler (the tool that translates this file into the binary 
+        format that VisualStudio will consume) has the ability to run a preprocessor 
+        on the vsct file; this preprocessor is (usually) the C++ preprocessor, so 
+        it is possible to define includes and macros with the same syntax used 
+        in C++ files. Using this ability of the compiler here, we include some files 
+        defining some of the constants that we will use inside the file. -->
+
+    <!--This is the file that defines the IDs for all the commands exposed by VisualStudio. -->
+    <Extern href="stdidcmd.h"/>
+
+    <!--This header contains the command ids for the menus provided by the shell. -->
+    <Extern href="vsshlids.h"/>
+
+    <!-- These headers allow you to reference the Debug menu -->
+    <Extern href="VSDbgCmd.h" />
+    <Extern href="VsDebugGuids.h" />
+    
+    <Commands package="guidMonoDebuggerPkg">
+        <Groups>
+            <Group guid="guidAttachCommandSet" id="AttachMonoDebuggerGroup" priority="0x600">
+                <Parent guid="guidVSDebugGroup" id="IDM_DEBUG_MENU" />
+            </Group>
+        </Groups>
+        <Buttons>
+            <Button guid="guidAttachCommandSet" id="idAttachDebugger" priority="0x0600" type="Button">
+                <Parent guid="guidAttachCommandSet" id="AttachMonoDebuggerGroup" />
+                <Strings>
+                    <ButtonText>Attach to Mono Processs</ButtonText>
+                </Strings>
+            </Button>
+        </Buttons>
+    </Commands>
+    <Symbols>
+        <GuidSymbol name="guidMonoDebuggerPkg" value="{3a89d0ae-b482-4f2a-a8d0-da51583ce95c}" />
+        <GuidSymbol name="guidAttachCommandSet" value="{A0BC1490-8E97-4524-B94F-B70C8A21F8E3}">
+            <IDSymbol name="AttachMonoDebuggerGroup" value="0x1020" />
+            <IDSymbol name="idAttachDebugger" value="0x100" />
+        </GuidSymbol>
+    </Symbols>
+</CommandTable>

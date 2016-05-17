@@ -1,0 +1,6 @@
+packages/
+MonoDebugger.VisualStudio/obj/
+MonoDebugger.VisualStudio/bin/
+MonoDebugger/bin/
+MonoDebugger/obj/
+.vs/
