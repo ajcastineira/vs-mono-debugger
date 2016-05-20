@@ -8,7 +8,7 @@ namespace MonoDebugger.VisualStudio
         public MonoEngine Engine { get; }
         public MonoPendingBreakpoint this[BreakEvent breakEvent] => breakpoints[breakEvent];
 
-        private Dictionary<BreakEvent, MonoPendingBreakpoint> breakpoints = new Dictionary<BreakEvent, MonoPendingBreakpoint>();
+        private readonly Dictionary<BreakEvent, MonoPendingBreakpoint> breakpoints = new Dictionary<BreakEvent, MonoPendingBreakpoint>();
 
         public MonoBreakpointManager(MonoEngine engine)
         {
@@ -18,6 +18,12 @@ namespace MonoDebugger.VisualStudio
         public void Add(BreakEvent breakEvent, MonoPendingBreakpoint pendingBreakpoint) 
         {
             breakpoints[breakEvent] = pendingBreakpoint;
+        }
+
+        public void Remove(BreakEvent breakEvent)
+        {
+            Engine.Session.Breakpoints.Remove(breakEvent);
+            breakpoints.Remove(breakEvent);
         }
     }
 }

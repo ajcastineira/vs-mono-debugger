@@ -2,6 +2,7 @@
 using System.Runtime.InteropServices;
 using Microsoft.VisualStudio;
 using Microsoft.VisualStudio.Debugger.Interop;
+using Mono.Debugging.Client;
 using MonoDebugger.VisualStudio.Events;
 using MonoDebugger.VisualStudio.VsUtils;
 
@@ -11,12 +12,13 @@ namespace MonoDebugger.VisualStudio
     {
         public MonoBoundBreakpoint[] BoundBreakpoints => boundBreakpoints.ToArray();
 
-        private MonoBreakpointManager breakpointManager;
-        private IDebugBreakpointRequest2 request;
-        private BP_REQUEST_INFO requestInfo; 
+        private readonly MonoBreakpointManager breakpointManager;
+        private readonly IDebugBreakpointRequest2 request;
+        private readonly BP_REQUEST_INFO requestInfo; 
+        private readonly List<MonoBoundBreakpoint> boundBreakpoints = new List<MonoBoundBreakpoint>();
+        private Breakpoint breakpoint;
         private bool isDeleted;
         private bool isEnabled;
-        private readonly List<MonoBoundBreakpoint> boundBreakpoints = new List<MonoBoundBreakpoint>();
 
         public MonoPendingBreakpoint(MonoBreakpointManager breakpointManager, IDebugBreakpointRequest2 request)
         {
@@ -45,7 +47,7 @@ namespace MonoDebugger.VisualStudio
             string documentName;
             EngineUtils.CheckOk(docPosition.GetFileName(out documentName));
 
-            // Remap document name
+            // Remap document name  TODO: Implement this properly
             const string localRoot = @"C:/dev/TestDebug/TestDebug";
             documentName = documentName.Replace('\\', '/');
             const string remoteRoot = @"/mnt/c/dev/TestDebug/TestDebug";
@@ -56,8 +58,10 @@ namespace MonoDebugger.VisualStudio
             EngineUtils.CheckOk(docPosition.GetRange(startPosition, endPosition));
 
             var engine = breakpointManager.Engine;
-            var breakpoint = engine.Session.Breakpoints.Add(documentName, (int)startPosition[0].dwLine + 1, (int)startPosition[0].dwColumn + 1);
+            breakpoint = engine.Session.Breakpoints.Add(documentName, (int)startPosition[0].dwLine + 1, (int)startPosition[0].dwColumn + 1);
             breakpointManager.Add(breakpoint, this);
+            SetCondition(requestInfo.bpCondition);
+            SetPassCount(requestInfo.bpPassCount);
 
             lock (boundBreakpoints)
             {
@@ -116,6 +120,7 @@ namespace MonoDebugger.VisualStudio
             lock (boundBreakpoints)
             {
                 isEnabled = enable != 0;
+                breakpoint.Enabled = isEnabled;
 
                 foreach (var boundBreakpoint in boundBreakpoints)
                 {
@@ -126,21 +131,39 @@ namespace MonoDebugger.VisualStudio
             return VSConstants.S_OK;
         }
 
-        public int SetCondition(BP_CONDITION bpCondition)
+        public int SetCondition(BP_CONDITION condition)
         {
-            return VSConstants.E_NOTIMPL;
+            breakpoint.ConditionExpression = condition.bstrCondition;
+            return VSConstants.S_OK;
         }
 
-        public int SetPassCount(BP_PASSCOUNT bpPassCount)
+        public int SetPassCount(BP_PASSCOUNT passCount)
         {
-            return VSConstants.E_NOTIMPL;
+            breakpoint.HitCount = (int)passCount.dwPassCount;
+            switch (passCount.stylePassCount)
+            {
+                case enum_BP_PASSCOUNT_STYLE.BP_PASSCOUNT_EQUAL:
+                    breakpoint.HitCountMode = HitCountMode.EqualTo;
+                    break;
+                case enum_BP_PASSCOUNT_STYLE.BP_PASSCOUNT_EQUAL_OR_GREATER:
+                    breakpoint.HitCountMode = HitCountMode.GreaterThanOrEqualTo;
+                    break;
+                case enum_BP_PASSCOUNT_STYLE.BP_PASSCOUNT_MOD:
+                    breakpoint.HitCountMode = HitCountMode.None;
+                    return VSConstants.E_NOTIMPL;
+                default:
+                    breakpoint.HitCountMode = HitCountMode.None;
+                    break;
+            }
+
+            return VSConstants.S_OK;
         }
 
         public int EnumBoundBreakpoints(out IEnumDebugBoundBreakpoints2 enumerator)
         {
             lock (boundBreakpoints)
             {
-                enumerator = new BoundBreakpointsEnumerator(boundBreakpoints.ToArray());
+                enumerator = new MonoBoundBreakpointsEnum(boundBreakpoints.ToArray());
             }
             return VSConstants.S_OK;
         }
@@ -155,13 +178,16 @@ namespace MonoDebugger.VisualStudio
         {
             if (!isDeleted)
             {
+                isDeleted = true;
+                breakpointManager.Remove(breakpoint);
+
                 lock (boundBreakpoints)
                 {
                     for (var i = boundBreakpoints.Count - 1; i >= 0; i--)
                     {
                         boundBreakpoints[i].Delete();
                     }
-                }                
+                }
             }
             return VSConstants.S_OK;
         }

@@ -96,7 +96,16 @@ namespace MonoDebugger.VisualStudio
 
         public int CauseBreak()
         {
-            throw new NotImplementedException();
+            EventHandler<TargetEventArgs> stepFinished = null;
+            stepFinished = (sender, args) =>
+            {
+                Session.TargetStopped -= stepFinished;
+                Send(new MonoBreakpointEvent(new MonoBoundBreakpointsEnum(new IDebugBoundBreakpoint2[0])), MonoStepCompleteEvent.IID, threadManager[args.Thread]);
+            };
+            Session.TargetStopped += stepFinished;
+
+            Session.Stop();
+            return VSConstants.S_OK;
         }
 
         int IDebugProgram2.EnumThreads(out IEnumDebugThreads2 ppEnum)
@@ -142,7 +151,12 @@ namespace MonoDebugger.VisualStudio
 
         int IDebugProgram2.Detach()
         {
-            throw new NotImplementedException();
+            if (!Session.IsRunning)
+            {
+                Session.Continue();
+            }
+            Session.Dispose();
+            return VSConstants.S_OK;
         }
 
         int IDebugProgram2.GetProgramId(out Guid programId)
@@ -391,7 +405,7 @@ namespace MonoDebugger.VisualStudio
             {
                 var breakpoint = x.BreakEvent as Breakpoint;
                 var pendingBreakpoint = breakpointManager[breakpoint];
-                Send(new MonoBreakpointEvent(new BoundBreakpointsEnumerator(pendingBreakpoint.BoundBreakpoints)), MonoBreakpointEvent.IID, threadManager[x.Thread]);
+                Send(new MonoBreakpointEvent(new MonoBoundBreakpointsEnum(pendingBreakpoint.BoundBreakpoints)), MonoBreakpointEvent.IID, threadManager[x.Thread]);
             };
 
             return VSConstants.S_OK;
