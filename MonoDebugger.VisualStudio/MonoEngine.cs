@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Linq;
 using System.Net;
 using System.Runtime.InteropServices;
 using Microsoft.VisualStudio;
@@ -13,12 +14,21 @@ namespace MonoDebugger.VisualStudio
     [Guid("D78CF801-CE2A-499B-BF1F-C81742877A34")]
     public class MonoEngine : IDebugEngine2, IDebugProgram3, IDebugEngineLaunch2, IDebugSymbolSettings100
     {
+        public SoftDebuggerSession Session { get; private set; }
+        public IDebugEventCallback2 Callback { get; private set; }
+
         private string registryRoot;
         private ushort locale;
-        private IDebugEventCallback2 callback;
         private Guid programId;
         private AD_PROCESS_ID processId;
-        private SoftDebuggerSession session;
+        private readonly MonoBreakpointManager breakpointManager;
+        private readonly MonoThreadManager threadManager;
+
+        public MonoEngine()
+        {
+            breakpointManager = new MonoBreakpointManager(this);
+            threadManager = new MonoThreadManager(this);
+        }
 
         public int EnumPrograms(out IEnumDebugPrograms2 ppEnum)
         {
@@ -27,7 +37,7 @@ namespace MonoDebugger.VisualStudio
 
         public int CreatePendingBreakpoint(IDebugBreakpointRequest2 request, out IDebugPendingBreakpoint2 pendingBreakpoint)
         {
-            pendingBreakpoint = new MonoPendingBreakpoint(this, request);
+            pendingBreakpoint = new MonoPendingBreakpoint(breakpointManager, request);
 
             return VSConstants.S_OK;
         }
@@ -60,10 +70,9 @@ namespace MonoDebugger.VisualStudio
 
         public int ContinueFromSynchronousEvent(IDebugEvent2 @event)
         {
-            if (@event is ProgramDestroyEvent)
+            if (@event is MonoProgramDestroyEvent)
             {
-                session.Detach();
-                session.Dispose();
+                Session.Dispose();
             }
             return VSConstants.S_OK;
         }
@@ -92,7 +101,17 @@ namespace MonoDebugger.VisualStudio
 
         int IDebugProgram2.EnumThreads(out IEnumDebugThreads2 ppEnum)
         {
-            throw new NotImplementedException();
+            var threads = threadManager.All.ToArray();
+
+            var threadObjects = new MonoThread[threads.Length];
+            for (int i = 0; i < threads.Length; i++)
+            {
+                threadObjects[i] = threads[i];
+            }
+
+            ppEnum = new MonoThreadEnum(threadObjects);
+            
+            return VSConstants.S_OK;
         }
 
         int IDebugProgram2.GetName(out string programName)
@@ -147,9 +166,43 @@ namespace MonoDebugger.VisualStudio
             throw new NotImplementedException();
         }
 
-        int IDebugProgram2.Step(IDebugThread2 pThread, enum_STEPKIND sk, enum_STEPUNIT Step)
+        public int Step(IDebugThread2 thread, enum_STEPKIND kind, enum_STEPUNIT unit)
         {
-            throw new NotImplementedException();
+            switch (kind)
+            {
+                case enum_STEPKIND.STEP_BACKWARDS:
+                    return VSConstants.E_NOTIMPL;
+            }
+
+            EventHandler<TargetEventArgs> stepFinished = null;
+            stepFinished = (sender, args) =>
+            {
+                Session.TargetStopped -= stepFinished;
+                Send(new MonoStepCompleteEvent(), MonoStepCompleteEvent.IID, threadManager[args.Thread]);
+            };
+            Session.TargetStopped += stepFinished;
+
+            switch (kind)
+            {
+                case enum_STEPKIND.STEP_OVER:
+                    switch (unit)
+                    {
+                        case enum_STEPUNIT.STEP_INSTRUCTION:
+                            Session.NextInstruction();
+                            break;
+                        default:
+                            Session.StepLine();
+                            break;
+                    }
+                    break;
+                case enum_STEPKIND.STEP_INTO:
+                    Session.StepInstruction();
+                    break;
+                case enum_STEPKIND.STEP_OUT:
+                    Session.Finish();
+                    break;
+            }
+            return VSConstants.S_OK;
         }
 
         int IDebugProgram2.GetEngineInfo(out string pbstrEngine, out Guid pguidEngine)
@@ -247,11 +300,6 @@ namespace MonoDebugger.VisualStudio
             throw new NotImplementedException();
         }
 
-        int IDebugProgram3.Step(IDebugThread2 pThread, enum_STEPKIND sk, enum_STEPUNIT Step)
-        {
-            throw new NotImplementedException();
-        }
-
         int IDebugProgram3.GetEngineInfo(out string pbstrEngine, out Guid pguidEngine)
         {
             throw new NotImplementedException();
@@ -294,7 +342,12 @@ namespace MonoDebugger.VisualStudio
 
         public int ExecuteOnThread(IDebugThread2 pThread)
         {
-            throw new NotImplementedException();
+            var monoThread = (MonoThread)pThread;
+            var thread = monoThread.GetDebuggedThread();
+            if (Session.ActiveThread?.Id != thread.Id) 
+                thread.SetActive();
+            Session.Continue();
+            return VSConstants.S_OK;
         }
 
         public int LaunchSuspended(string server, IDebugPort2 port, string exe, string args, string directory, string environment, string options, enum_LAUNCH_FLAGS launchFlags, uint standardInput, uint standardOutput, uint standardError, IDebugEventCallback2 callback, out IDebugProcess2 process)
@@ -304,21 +357,42 @@ namespace MonoDebugger.VisualStudio
             processId.guidProcessId = Guid.NewGuid();
 
             EngineUtils.CheckOk(port.GetProcess(processId, out process));
-            this.callback = callback;
+            this.Callback = callback;
 
-            session = new SoftDebuggerSession();
-            session.TargetReady += (sender, eventArgs) =>
+            Session = new SoftDebuggerSession();
+            Session.TargetReady += (sender, eventArgs) =>
             {
+                var activeThread = Session.ActiveThread;
+                threadManager.Add(activeThread, new MonoThread(this, activeThread));
+/*
+                Session.Stop();
+                var location = activeThread.Location;
+                var backtrace = activeThread.Backtrace;
+                var locations = Session.VirtualMachine.RootDomain.GetAssemblies().Select(x => x.Location).ToArray();
+                Session.Continue();
+*/
+
                 MonoEngineCreateEvent.Send(this);
                 MonoProgramCreateEvent.Send(this);                
             };
-            session.ExceptionHandler = exception => true;
-            session.TargetExceptionThrown += (sender, x) => Console.WriteLine(x.Type);
-            session.TargetExited += (sender, x) => Console.WriteLine(x.Type);
-            session.TargetUnhandledException += (sender, x) => Console.WriteLine(x.Type);
-            session.LogWriter = (stderr, text) => Console.WriteLine(text);
-            session.OutputWriter = (stderr, text) => Console.WriteLine(text);
-            session.TargetHitBreakpoint += (sender, x) => Console.WriteLine(x.Type);
+            Session.ExceptionHandler = exception => true;
+            Session.TargetExceptionThrown += (sender, x) => Console.WriteLine(x.Type);
+            Session.TargetExited += (sender, x) => Send(new MonoProgramDestroyEvent((uint?)x.ExitCode ?? 0), MonoProgramDestroyEvent.IID, null);
+            Session.TargetUnhandledException += (sender, x) => Console.WriteLine(x.Type);
+            Session.LogWriter = (stderr, text) => Console.WriteLine(text);
+            Session.OutputWriter = (stderr, text) => Console.WriteLine(text);
+            Session.TargetThreadStarted += (sender, x) => threadManager.Add(x.Thread, new MonoThread(this, x.Thread));
+            Session.TargetThreadStopped += (sender, x) => threadManager.Remove(x.Thread);
+            Session.TargetStopped += (sender, x) => Console.WriteLine(x.Type);
+            Session.TargetStarted += (sender, x) => Console.WriteLine();
+            Session.TargetSignaled += (sender, x) => Console.WriteLine(x.Type);
+            Session.TargetInterrupted += (sender, x) => Console.WriteLine(x.Type);
+            Session.TargetHitBreakpoint += (sender, x) =>
+            {
+                var breakpoint = x.BreakEvent as Breakpoint;
+                var pendingBreakpoint = breakpointManager[breakpoint];
+                Send(new MonoBreakpointEvent(new BoundBreakpointsEnumerator(pendingBreakpoint.BoundBreakpoints)), MonoBreakpointEvent.IID, threadManager[x.Thread]);
+            };
 
             return VSConstants.S_OK;
         }
@@ -349,7 +423,8 @@ namespace MonoDebugger.VisualStudio
 
             EngineUtils.RequireOk(program.GetProgramId(out programId));
 
-            session.Run(new SoftDebuggerStartInfo(new SoftDebuggerConnectArgs("", new IPAddress(new byte[] { 192, 168, 137, 3 }), 12345)), new DebuggerSessionOptions { ProjectAssembliesOnly = false });
+            Session.Run(new SoftDebuggerStartInfo(new SoftDebuggerConnectArgs("", new IPAddress(new byte[] { 192, 168, 137, 3 }), 12345)), 
+                new DebuggerSessionOptions { EvaluationOptions = EvaluationOptions.DefaultOptions, ProjectAssembliesOnly = false });
 
             return VSConstants.S_OK;
         }
@@ -362,7 +437,7 @@ namespace MonoDebugger.VisualStudio
         public int TerminateProcess(IDebugProcess2 pProcess)
         {
             pProcess.Terminate();
-            Send(new ProgramDestroyEvent(0), ProgramDestroyEvent.IID, null);
+            Send(new MonoProgramDestroyEvent(0), MonoProgramDestroyEvent.IID, null);
             return VSConstants.S_OK;
         }
 
@@ -373,10 +448,7 @@ namespace MonoDebugger.VisualStudio
 
         public void Send(IDebugEvent2 eventObject, string iidEvent, IDebugProgram2 program, IDebugThread2 thread)
         {
-            uint attributes; 
-            Guid riidEvent = new Guid(iidEvent);
-            eventObject.GetAttributes(out attributes);
-            callback.Event(this, null, program, thread, eventObject, ref riidEvent, attributes);
+            Callback.Send(this, eventObject, iidEvent, program, thread);
         }
 
         public void Send(IDebugEvent2 eventObject, string iidEvent, IDebugThread2 thread)

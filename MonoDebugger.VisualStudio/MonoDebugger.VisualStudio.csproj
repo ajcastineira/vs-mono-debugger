@@ -53,26 +53,44 @@
   <ItemGroup>
     <Compile Include="BoundBreakpointsEnumerator.cs" />
     <Compile Include="CustomLogger.cs" />
+    <Compile Include="DebuggerGuids.cs" />
     <Compile Include="Enumerator.cs" />
     <Compile Include="Events\AsynchronousEvent.cs" />
-    <Compile Include="Events\BreakpointBoundEvent.cs" />
-    <Compile Include="Events\ProgramDestroyEvent.cs" />
+    <Compile Include="Events\MonoBreakpointBoundEvent.cs" />
+    <Compile Include="Events\MonoBreakpointEvent.cs" />
+    <Compile Include="Events\MonoExpressionCompleteEvent.cs" />
+    <Compile Include="Events\MonoStepCompleteEvent.cs" />
+    <Compile Include="Events\MonoStoppingEvent.cs" />
+    <Compile Include="Events\MonoProgramDestroyEvent.cs" />
     <Compile Include="Events\MonoEngineCreateEvent.cs" />
     <Compile Include="Events\MonoProgramCreateEvent.cs" />
     <Compile Include="Events\SynchronousEvent.cs" />
     <Compile Include="Guids.cs" />
     <Compile Include="MonoBoundBreakpoint.cs" />
     <Compile Include="MonoBoundBreakpointsEnum.cs" />
+    <Compile Include="MonoBreakpointManager.cs" />
     <Compile Include="MonoBreakpointResolution.cs" />
+    <Compile Include="MonoCallbackExtensions.cs" />
+    <Compile Include="MonoCallbackWrapper.cs" />
     <Compile Include="MonoCodeContextEnum.cs" />
     <Compile Include="MonoDebuggerPackage.cs" />
     <Compile Include="MonoDocumentContext.cs" />
     <Compile Include="MonoEngine.cs" />
+    <Compile Include="MonoExpression.cs" />
+    <Compile Include="MonoFrameInfoEnum.cs" />
     <Compile Include="MonoMemoryAddress.cs" />
     <Compile Include="MonoPendingBreakpoint.cs" />
     <Compile Include="MonoProgramNode.cs" />
     <Compile Include="MonoProgramProvider.cs" />
+    <Compile Include="MonoProperty.cs" />
+    <Compile Include="MonoPropertyEnum.cs" />
+    <Compile Include="MonoPropertyEnumerator.cs" />
+    <Compile Include="MonoPropertyInfoEnum.cs" />
+    <Compile Include="MonoStackFrame.cs" />
+    <Compile Include="MonoThread.cs" />
+    <Compile Include="MonoThreadEnum.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
+    <Compile Include="MonoThreadManager.cs" />
     <Compile Include="VsUtils\ComponentException.cs" />
     <Compile Include="VsUtils\EngineUtils.cs" />
     <Compile Include="VsUtils\ProvideDebugEngineAttribute.cs" />
@@ -221,8 +239,12 @@
     </EmbeddedResource>
   </ItemGroup>
   <ItemGroup>
+    <ProjectReference Include="..\..\sdb\dep\debugger-libs\Mono.Debugger.Soft\Mono.Debugger.Soft.csproj">
+      <Project>{372e8e3e-29d5-4b4d-88a2-4711cd628c4e}</Project>
+      <Name>Mono.Debugger.Soft</Name>
+    </ProjectReference>
     <ProjectReference Include="..\..\sdb\dep\debugger-libs\Mono.Debugging.Soft\Mono.Debugging.Soft.csproj">
-      <Project>{DE40756E-57F6-4AF2-B155-55E3A88CCED8}</Project>
+      <Project>{de40756e-57f6-4af2-b155-55e3a88cced8}</Project>
       <Name>Mono.Debugging.Soft</Name>
     </ProjectReference>
     <ProjectReference Include="..\..\sdb\dep\debugger-libs\Mono.Debugging\Mono.Debugging.csproj">

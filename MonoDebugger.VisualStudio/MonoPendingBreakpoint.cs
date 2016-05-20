@@ -9,16 +9,18 @@ namespace MonoDebugger.VisualStudio
 {
     public class MonoPendingBreakpoint : IDebugPendingBreakpoint2
     {
-        private MonoEngine engine;
+        public MonoBoundBreakpoint[] BoundBreakpoints => boundBreakpoints.ToArray();
+
+        private MonoBreakpointManager breakpointManager;
         private IDebugBreakpointRequest2 request;
         private BP_REQUEST_INFO requestInfo; 
         private bool isDeleted;
         private bool isEnabled;
         private readonly List<MonoBoundBreakpoint> boundBreakpoints = new List<MonoBoundBreakpoint>();
 
-        public MonoPendingBreakpoint(MonoEngine engine, IDebugBreakpointRequest2 request)
+        public MonoPendingBreakpoint(MonoBreakpointManager breakpointManager, IDebugBreakpointRequest2 request)
         {
-            this.engine = engine;
+            this.breakpointManager = breakpointManager;
             this.request = request;
 
             var requestInfo = new BP_REQUEST_INFO[1];
@@ -39,19 +41,32 @@ namespace MonoDebugger.VisualStudio
 
         public int Bind()
         {
+            var docPosition = (IDebugDocumentPosition2)Marshal.GetObjectForIUnknown(requestInfo.bpLocation.unionmember2);
+            string documentName;
+            EngineUtils.CheckOk(docPosition.GetFileName(out documentName));
+
+            // Remap document name
+            const string localRoot = @"C:/dev/TestDebug/TestDebug";
+            documentName = documentName.Replace('\\', '/');
+            const string remoteRoot = @"/mnt/c/dev/TestDebug/TestDebug";
+            documentName = remoteRoot + documentName.Substring(localRoot.Length);
+
+            var startPosition = new TEXT_POSITION[1];
+            var endPosition = new TEXT_POSITION[1];
+            EngineUtils.CheckOk(docPosition.GetRange(startPosition, endPosition));
+
+            var engine = breakpointManager.Engine;
+            var breakpoint = engine.Session.Breakpoints.Add(documentName, (int)startPosition[0].dwLine + 1, (int)startPosition[0].dwColumn + 1);
+            breakpointManager.Add(breakpoint, this);
+
             lock (boundBreakpoints)
             {
-                for (uint address = 0; address < 100; address++)
-                {
-                    MonoBreakpointResolution breakpointResolution = new MonoBreakpointResolution(engine, address, GetDocumentContext(address));
-                    MonoBoundBreakpoint boundBreakpoint = new MonoBoundBreakpoint(engine, address, this, breakpointResolution);
-                    boundBreakpoints.Add(boundBreakpoint);                    
+                uint address = 0;
+                var breakpointResolution = new MonoBreakpointResolution(engine, address, GetDocumentContext(address));
+                var boundBreakpoint = new MonoBoundBreakpoint(engine, address, this, breakpointResolution);
+                boundBreakpoints.Add(boundBreakpoint);                    
 
-                    engine.Send(new BreakpointBoundEvent(this, boundBreakpoint), BreakpointBoundEvent.IID, null);
-                }
-
-//                m_boundBreakpoints.Add(boundBreakpoint);
-//                m_engine.DebuggedProcess.SetBreakpoint(addr, boundBreakpoint);
+                engine.Send(new MonoBreakpointBoundEvent(this, boundBreakpoint), MonoBreakpointBoundEvent.IID, null);
             }
 
             return VSConstants.S_OK;
@@ -68,9 +83,9 @@ namespace MonoDebugger.VisualStudio
             var endPosition = new TEXT_POSITION[1];
             EngineUtils.CheckOk(docPosition.GetRange(startPosition, endPosition));           
 
-            MonoMemoryAddress codeContext = new MonoMemoryAddress(engine, address, null);
+            MonoMemoryAddress codeContext = new MonoMemoryAddress(breakpointManager.Engine, address, null);
             
-            return new MonoDocumentContext(documentName, startPosition[0], startPosition[0], codeContext);
+            return new MonoDocumentContext(documentName, startPosition[0], endPosition[0], codeContext);
         }
 
         public int GetState(PENDING_BP_STATE_INFO[] state)
